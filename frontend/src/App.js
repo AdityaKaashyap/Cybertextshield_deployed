@@ -5,7 +5,7 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState("");
 
-  const API_URL = "http://127.0.0.1:8000/tasks";
+  const API_URL = "https://farm-todo-app.onrender.com";
 
   useEffect(() => {
     fetchTasks();

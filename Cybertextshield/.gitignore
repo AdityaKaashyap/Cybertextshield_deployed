@@ -2,6 +2,8 @@
 env/
 venv/
 additionals/
+backend/.env
+
 
 # Python cache files
 __pycache__/

@@ -1,0 +1,25 @@
+# --- FastAPI & Server ---
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+
+# --- MongoDB (Async) ---
+motor==3.3.2
+pymongo==4.7.2
+
+# --- Authentication & Security ---
+bcrypt==4.2.0
+pyjwt==2.9.0
+python-multipart==0.0.9   # for form-data support if needed later
+
+# --- Machine Learning / Model ---
+torch==2.2.2
+torch-geometric==2.5.3
+scikit-learn==1.5.1
+pandas==2.2.2
+numpy==1.26.4
+
+# --- Visualization (optional, for training curves/plots) ---
+matplotlib==3.9.2
+seaborn==0.13.2
+
+ python-dotenv==1.0.1  # for environment variable management

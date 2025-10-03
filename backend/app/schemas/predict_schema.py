@@ -7,3 +7,4 @@ class PredictResponse(BaseModel):
     message: str
     prediction: str
     confidence: float
+

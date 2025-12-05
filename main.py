@@ -7,6 +7,11 @@ import re
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.nn import HypergraphConv
+from pymongo import MongoClient
+from datetime import datetime
+from db import save_smish_to_db
+
+
 
 # -----------------------------
 # 1. Define Request & Response Models
@@ -90,6 +95,18 @@ def predict(request: MessageRequest):
             probs = F.softmax(out, dim=1)[:, 1].cpu().numpy()
             preds = out.argmax(dim=1).cpu().numpy()
             labels = label_encoder.inverse_transform(preds)
+
+        # -----------------------------
+        # Save smish messages to MongoDB
+        # -----------------------------
+        for msg, pred, prob in zip(request.messages, labels, probs):
+            if pred.lower() == "smish":
+                collection.insert_one({
+                    "message": msg,
+                    "prediction": pred,
+                    "probability": float(prob),
+                    "timestamp": datetime.utcnow()
+                })
 
         return PredictionResponse(
             predictions=labels.tolist(),

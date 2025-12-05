@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+torch-geometric
+scikit-learn
+joblib
+numpy
+matplotlib
+seaborn

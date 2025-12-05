@@ -7,7 +7,7 @@ from datetime import datetime
 try:
     client = MongoClient("mongodb://127.0.0.1:27017/", serverSelectionTimeoutMS=3000)
     client.server_info()  # Force connection
-    db = client["smish_db"]
+    db = client["smish_db_collector"]
     smish_collection = db["detected_smish"]
     print("✅ MongoDB connected.")
 except Exception as e:

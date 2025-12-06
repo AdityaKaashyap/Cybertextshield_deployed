@@ -15,7 +15,7 @@ from db import save_smish_to_db  # DB logger
 # -----------------------------
 class MessageRequest(BaseModel):
     messages: list[str]
-    senders: list[str] | None = None   # NEW FIELD ADDED
+    senders: list[str] | None = None   # OPTIONAL SENDER IDs
 
 class PredictionResponse(BaseModel):
     predictions: list[str]
@@ -23,7 +23,7 @@ class PredictionResponse(BaseModel):
 
 
 # -----------------------------
-# 2. HGNN Model Class
+# 2. HGNN Model
 # -----------------------------
 class HGNN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_classes, dropout=0.5):
@@ -41,7 +41,7 @@ class HGNN(torch.nn.Module):
 
 
 # -----------------------------
-# 3. Text Preprocessing
+# 3. Preprocessing
 # -----------------------------
 def clean_text(text):
     text = str(text).lower()
@@ -53,7 +53,7 @@ def clean_text(text):
 def build_hypergraph(X, K=10):
     from sklearn.neighbors import NearestNeighbors
     N = X.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=min(K+1, N), metric="cosine").fit(X)
+    nbrs = NearestNeighbors(n_neighbors=min(K + 1, N), metric="cosine").fit(X)
     _, indices = nbrs.kneighbors(X)
 
     edge_index = []
@@ -70,7 +70,7 @@ def make_data(X):
 
 
 # -----------------------------
-# 4. FastAPI App Initialization
+# 4. App Init
 # -----------------------------
 app = FastAPI(title="HGNN Smishing Detection API")
 
@@ -84,38 +84,40 @@ model.eval()
 
 
 # -----------------------------
-# 5. Prediction Endpoint
+# 5. Prediction Endpoint (Updated)
 # -----------------------------
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: MessageRequest):
     try:
-        senders = request.senders or ["UNKNOWN"] * len(request.messages)
+        messages = request.messages
+        senders = request.senders or ["UNKNOWN"] * len(messages)
 
-        # Preallocate results
-        predictions = [""] * len(request.messages)
-        probabilities = [0.0] * len(request.messages)
+        N = len(messages)
+
+        # Preallocate outputs
+        predictions = [""] * N
+        probabilities = [0.0] * N
 
         SAFE_SUFFIXES = ("-G", "-S", "-P", "-T")
-        rule_based_flags = []
 
-        # 1️⃣ Apply RULE-BASED detection first
-        for i, sender in enumerate(senders):
-            sender = sender.upper()
+        # Track messages that need ML prediction
+        ml_indices = []
+
+        # 1️⃣ RULE-BASED DETECTION FIRST
+        for i in range(N):
+            sender = senders[i].upper()
 
             if sender.endswith(SAFE_SUFFIXES):
                 predictions[i] = "ham"
                 probabilities[i] = 0.0
-                rule_based_flags.append(True)
             else:
-                rule_based_flags.append(False)
+                ml_indices.append(i)
 
-        # 2️⃣ Prepare ML model inputs for remaining messages
-        messages_to_predict = [
-            msg for msg, is_rule in zip(request.messages, rule_based_flags) if not is_rule
-        ]
+        # 2️⃣ ML MODEL FOR REMAINING MESSAGES
+        if ml_indices:
+            msgs_for_ml = [messages[i] for i in ml_indices]
 
-        if messages_to_predict:
-            cleaned = [clean_text(m) for m in messages_to_predict]
+            cleaned = [clean_text(m) for m in msgs_for_ml]
             X = vectorizer.transform(cleaned).toarray()
             data = make_data(X).to(device)
 
@@ -125,18 +127,15 @@ def predict(request: MessageRequest):
                 preds = out.argmax(dim=1).cpu().numpy()
                 labels = label_encoder.inverse_transform(preds)
 
-            # Fill values back into correct positions
-            idx = 0
-            for i in range(len(request.messages)):
-                if not rule_based_flags[i]:
-                    predictions[i] = labels[idx]
-                    probabilities[i] = float(probs[idx])
-                    idx += 1
+            # Insert predicted values back at correct indices
+            for k, global_idx in enumerate(ml_indices):
+                predictions[global_idx] = labels[k]
+                probabilities[global_idx] = float(probs[k])
 
-        # 3️⃣ Save smish results to DB
-        for raw_msg, pred, prob in zip(request.messages, predictions, probabilities):
+        # 3️⃣ SAVE ONLY SMISH TO DB
+        for msg, pred, prob in zip(messages, predictions, probabilities):
             if pred.lower() == "smish":
-                save_smish_to_db(raw_msg, prob, pred)
+                save_smish_to_db(msg, prob, pred)
 
         return PredictionResponse(
             predictions=predictions,

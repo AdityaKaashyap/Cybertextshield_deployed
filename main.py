@@ -90,23 +90,26 @@ model.eval()
 def predict(request: MessageRequest):
     try:
         senders = request.senders or ["UNKNOWN"] * len(request.messages)
-        predictions = []
-        probabilities = []
 
-        # ---- Rule-based classification for sender IDs ----
+        # Preallocate results
+        predictions = [""] * len(request.messages)
+        probabilities = [0.0] * len(request.messages)
+
         SAFE_SUFFIXES = ("-G", "-S", "-P", "-T")
-
         rule_based_flags = []
-        for sender in senders:
+
+        # 1️⃣ Apply RULE-BASED detection first
+        for i, sender in enumerate(senders):
             sender = sender.upper()
+
             if sender.endswith(SAFE_SUFFIXES):
-                predictions.append("ham")
-                probabilities.append(0.0)
+                predictions[i] = "ham"
+                probabilities[i] = 0.0
                 rule_based_flags.append(True)
             else:
                 rule_based_flags.append(False)
 
-        # ---- For messages NOT decided by rule → use ML model ----
+        # 2️⃣ Prepare ML model inputs for remaining messages
         messages_to_predict = [
             msg for msg, is_rule in zip(request.messages, rule_based_flags) if not is_rule
         ]
@@ -122,7 +125,7 @@ def predict(request: MessageRequest):
                 preds = out.argmax(dim=1).cpu().numpy()
                 labels = label_encoder.inverse_transform(preds)
 
-            # Fill back into original order
+            # Fill values back into correct positions
             idx = 0
             for i in range(len(request.messages)):
                 if not rule_based_flags[i]:
@@ -130,7 +133,7 @@ def predict(request: MessageRequest):
                     probabilities[i] = float(probs[idx])
                     idx += 1
 
-        # Save ONLY smish predictions to DB
+        # 3️⃣ Save smish results to DB
         for raw_msg, pred, prob in zip(request.messages, predictions, probabilities):
             if pred.lower() == "smish":
                 save_smish_to_db(raw_msg, prob, pred)

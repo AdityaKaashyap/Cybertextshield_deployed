@@ -15,6 +15,7 @@ from db import save_smish_to_db  # DB logger
 # -----------------------------
 class MessageRequest(BaseModel):
     messages: list[str]
+    senders: list[str] | None = None   # NEW FIELD ADDED
 
 class PredictionResponse(BaseModel):
     predictions: list[str]
@@ -88,25 +89,55 @@ model.eval()
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: MessageRequest):
     try:
-        # Preprocess & vectorize
-        cleaned = [clean_text(m) for m in request.messages]
-        X = vectorizer.transform(cleaned).toarray()
-        data = make_data(X).to(device)
+        senders = request.senders or ["UNKNOWN"] * len(request.messages)
+        predictions = []
+        probabilities = []
 
-        with torch.no_grad():
-            out = model(data.x, data.edge_index)
-            probs = F.softmax(out, dim=1)[:, 1].cpu().numpy()
-            preds = out.argmax(dim=1).cpu().numpy()
-            labels = label_encoder.inverse_transform(preds)
+        # ---- Rule-based classification for sender IDs ----
+        SAFE_SUFFIXES = ("-G", "-S", "-P", "-T")
 
-        # Log only smish messages
-        for raw_msg, pred, prob in zip(request.messages, labels, probs):
-            if pred.lower() == "smish":  
+        rule_based_flags = []
+        for sender in senders:
+            sender = sender.upper()
+            if sender.endswith(SAFE_SUFFIXES):
+                predictions.append("ham")
+                probabilities.append(0.0)
+                rule_based_flags.append(True)
+            else:
+                rule_based_flags.append(False)
+
+        # ---- For messages NOT decided by rule → use ML model ----
+        messages_to_predict = [
+            msg for msg, is_rule in zip(request.messages, rule_based_flags) if not is_rule
+        ]
+
+        if messages_to_predict:
+            cleaned = [clean_text(m) for m in messages_to_predict]
+            X = vectorizer.transform(cleaned).toarray()
+            data = make_data(X).to(device)
+
+            with torch.no_grad():
+                out = model(data.x, data.edge_index)
+                probs = F.softmax(out, dim=1)[:, 1].cpu().numpy()
+                preds = out.argmax(dim=1).cpu().numpy()
+                labels = label_encoder.inverse_transform(preds)
+
+            # Fill back into original order
+            idx = 0
+            for i in range(len(request.messages)):
+                if not rule_based_flags[i]:
+                    predictions[i] = labels[idx]
+                    probabilities[i] = float(probs[idx])
+                    idx += 1
+
+        # Save ONLY smish predictions to DB
+        for raw_msg, pred, prob in zip(request.messages, predictions, probabilities):
+            if pred.lower() == "smish":
                 save_smish_to_db(raw_msg, prob, pred)
 
         return PredictionResponse(
-            predictions=labels.tolist(),
-            probabilities=probs.tolist()
+            predictions=predictions,
+            probabilities=probabilities
         )
 
     except Exception as e:

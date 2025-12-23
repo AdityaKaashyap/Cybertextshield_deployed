@@ -9,7 +9,12 @@ MONGO_URI = os.getenv("MONGO_URI")
 # MongoDB Connection (Localhost)
 # -----------------------------------
 try:
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
+    client = MongoClient(
+    MONGO_URI,
+    tls=True,
+    tlsAllowInvalidCertificates=True,
+    serverSelectionTimeoutMS=3000
+)
     client.server_info()  # Force connection
     db = client["smish_db_collector"]
     smish_collection = db["detected_smish"]
